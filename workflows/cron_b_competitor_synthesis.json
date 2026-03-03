@@ -1,0 +1,409 @@
+{
+  "name": "Cron B: Competitor Synthesis (72h)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 */3 * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 72h 06:00 ET",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO scrape_log (job_name, status) VALUES ('competitor_synthesis', 'running') RETURNING id;",
+        "options": {}
+      },
+      "id": "log-start",
+      "name": "Log Start",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [220, 0],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, ticker, exchange, news_page_url FROM companies WHERE is_target = FALSE AND news_page_url IS NOT NULL ORDER BY name;",
+        "options": {}
+      },
+      "id": "get-competitors",
+      "name": "Get Competitors",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [440, 0],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$json.news_page_url}}",
+        "options": {
+          "timeout": 30000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 3
+            }
+          }
+        }
+      },
+      "id": "http-request",
+      "name": "Fetch Competitor Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "continueOnFail": true,
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "titles",
+              "cssSelector": "h1 a, h2 a, h3 a, .entry-title a, .post-title a, .news-title a, .article-title a",
+              "returnArray": true
+            },
+            {
+              "key": "links",
+              "cssSelector": "h1 a, h2 a, h3 a, .entry-title a, .post-title a, .news-title a, .article-title a",
+              "returnArray": true,
+              "returnValue": "attribute",
+              "attribute": "href"
+            },
+            {
+              "key": "dates",
+              "cssSelector": "time, .date, .entry-date, .post-date, .news-date, .article-date",
+              "returnArray": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "html-extract",
+      "name": "Extract Articles",
+      "type": "n8n-nodes-base.htmlExtract",
+      "typeVersion": 1,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const titles = $input.first().json.titles || [];\nconst links = $input.first().json.links || [];\nconst dates = $input.first().json.dates || [];\nconst company = $('Get Competitors').item.json;\n\nconst articles = [];\nconst count = Math.min(titles.length, links.length);\n\nfor (let i = 0; i < count; i++) {\n  let link = links[i];\n  if (link && !link.startsWith('http')) {\n    try {\n      const base = new URL(company.news_page_url);\n      link = link.startsWith('/') ? base.origin + link : base.origin + '/' + link;\n    } catch(e) { continue; }\n  }\n  if (!link) continue;\n\n  articles.push({\n    json: {\n      company_id: company.id,\n      company_name: company.name,\n      ticker: company.ticker,\n      title: (titles[i] || '').trim(),\n      source_url: link.trim(),\n      published_date: (dates[i] || '').trim() || null,\n      source_site: company.name\n    }\n  });\n}\n\nreturn articles.length > 0 ? articles : [{ json: { _empty: true, company_name: company.name } }];"
+      },
+      "id": "normalize",
+      "name": "Normalize Articles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "filter-empty",
+              "leftValue": "={{$json._empty}}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-empty",
+      "name": "Filter Empty",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO articles (company_id, source_url, title, published_date, source_site)\nVALUES ({{$json.company_id}}, '{{$json.source_url}}', '{{$json.title}}', {{$json.published_date ? \"'\" + $json.published_date + \"'\" : \"NULL\"}}, '{{$json.source_site}}')\nON CONFLICT (source_url) DO NOTHING\nRETURNING id, title, company_id;",
+        "options": {}
+      },
+      "id": "insert-articles",
+      "name": "Dedup Insert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1540, 0],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst newArticles = items.filter(item => item.json.id);\n\n// Group by company\nconst byCompany = {};\nfor (const item of items) {\n  const name = item.json.company_name || $('Normalize Articles').item?.json?.company_name || 'Unknown';\n  if (!byCompany[name]) byCompany[name] = { total: 0, new: 0, titles: [] };\n  byCompany[name].total++;\n  if (item.json.id) {\n    byCompany[name].new++;\n    byCompany[name].titles.push(item.json.title);\n  }\n}\n\nconst companySummaries = Object.entries(byCompany).map(([name, data]) => \n  `${name}: ${data.titles.length > 0 ? data.titles.join('; ') : 'No new articles'}`\n).join('\\n');\n\nreturn [{\n  json: {\n    new_count: newArticles.length,\n    total_count: items.length,\n    companies_count: Object.keys(byCompany).length,\n    company_summaries: companySummaries\n  }\n}];"
+      },
+      "id": "merge-results",
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-new",
+              "leftValue": "={{$json.new_count}}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-new-articles",
+      "name": "IF New Articles",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1980, 0]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-5-mini",
+        "messages": {
+          "values": [
+            {
+              "content": "You are an expert mining industry analyst. Analyze competitor news for First Canadian Graphite (FCI) leadership. Classify each company's sentiment as BREAKTHROUGH, FAILURE, or STEADY with a score from -1.0 to 1.0."
+            }
+          ]
+        },
+        "prompt": "Analyze the following competitor news from the graphite mining sector. For each company with news, provide a sentiment classification and brief analysis.\n\nCompetitor news:\n{{$json.company_summaries}}\n\nRespond in JSON format:\n{\n  \"sentiments\": [\n    {\n      \"company_name\": \"...\",\n      \"sentiment_label\": \"BREAKTHROUGH|FAILURE|STEADY\",\n      \"sentiment_score\": -1.0 to 1.0,\n      \"reasoning\": \"1-2 sentence explanation\"\n    }\n  ],\n  \"fci_positioning\": \"2-3 paragraphs on what this means for FCI's competitive position\",\n  \"company_analyses\": \"HTML formatted per-company analysis sections\"\n}",
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 3000
+        }
+      },
+      "id": "openai-analyze",
+      "name": "GPT-5 Mini Analyze",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [2200, -100],
+      "credentials": {
+        "openAiApi": {
+          "id": "CREDENTIAL_ID",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let gptResponse;\ntry {\n  const content = $('GPT-5 Mini Analyze').first().json.message.content;\n  // Strip markdown code fences if present\n  const cleaned = content.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  gptResponse = JSON.parse(cleaned);\n} catch (e) {\n  return [{ json: { error: 'Failed to parse GPT response: ' + e.message, raw: $('GPT-5 Mini Analyze').first().json.message.content } }];\n}\n\n// Store sentiments\nconst sentimentInserts = (gptResponse.sentiments || []).map(s => ({\n  json: {\n    company_name: s.company_name,\n    sentiment_label: s.sentiment_label,\n    sentiment_score: s.sentiment_score,\n    reasoning: s.reasoning\n  }\n}));\n\nreturn [{\n  json: {\n    sentiments: gptResponse.sentiments || [],\n    fci_positioning: gptResponse.fci_positioning || '',\n    company_analyses: gptResponse.company_analyses || '',\n    valid: true\n  }\n}];"
+      },
+      "id": "validate-response",
+      "name": "Validate GPT Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2420, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nif (!data.valid) return [{ json: { skip: true } }];\n\nconst queries = data.sentiments.map(s => {\n  const label = (s.sentiment_label || 'STEADY').replace(/'/g, \"''\");\n  const reasoning = (s.reasoning || '').replace(/'/g, \"''\");\n  const companyName = (s.company_name || '').replace(/'/g, \"''\");\n  return `INSERT INTO sentiment_scores (company_id, sentiment_label, sentiment_score, reasoning)\n    SELECT c.id, '${label}', ${s.sentiment_score || 0}, '${reasoning}'\n    FROM companies c WHERE c.name = '${companyName}';`;\n});\n\nreturn [{ json: { query: queries.join('\\n'), count: data.sentiments.length } }];"
+      },
+      "id": "build-sentiment-queries",
+      "name": "Build Sentiment Queries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2640, -100]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{$json.query}}",
+        "options": {}
+      },
+      "id": "store-sentiments",
+      "name": "Store Sentiments",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2860, -100],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO summaries (summary_type, content, model_used)\nVALUES ('competitor_synthesis', '{{$('Validate GPT Response').first().json.fci_positioning}}', 'gpt-5-mini')\nRETURNING id;",
+        "options": {}
+      },
+      "id": "store-summary",
+      "name": "Store Summary",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3080, -100],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const gptData = $('Validate GPT Response').first().json;\nconst mergeData = $('Merge Results').first().json;\nconst today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });\n\n// Build sentiment table rows\nconst sentimentColors = { 'BREAKTHROUGH': '#28a745', 'FAILURE': '#dc3545', 'STEADY': '#ffc107' };\nconst sentimentRows = (gptData.sentiments || []).map(s => {\n  const color = sentimentColors[s.sentiment_label] || '#6c757d';\n  return `<tr><td style=\"padding:8px;border-bottom:1px solid #eee;\">${s.company_name}</td><td align=\"center\" style=\"padding:8px;border-bottom:1px solid #eee;\">${s.ticker || ''}</td><td align=\"center\" style=\"padding:8px;border-bottom:1px solid #eee;\"><span style=\"background-color:${color};color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:bold;\">${s.sentiment_label}</span></td><td align=\"center\" style=\"padding:8px;border-bottom:1px solid #eee;\">${s.sentiment_score}</td></tr>`;\n}).join('');\n\nlet html = `<!DOCTYPE html>\n<html><head><meta charset=\"UTF-8\"></head>\n<body style=\"margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,sans-serif;\">\n<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#f4f4f4;\"><tr><td align=\"center\" style=\"padding:20px 0;\">\n<table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#fff;border-radius:8px;overflow:hidden;\">\n<tr><td style=\"background-color:#16213e;padding:30px 40px;text-align:center;\"><h1 style=\"color:#fff;margin:0;font-size:24px;\">Competitor Synthesis</h1><p style=\"color:#a0a0c0;margin:8px 0 0;font-size:14px;\">72-Hour Industry Review &bull; ${today}</p></td></tr>\n<tr><td style=\"padding:30px 40px 10px;\"><h2 style=\"color:#16213e;font-size:18px;margin:0 0 15px;border-bottom:2px solid #e6e6e6;padding-bottom:10px;\">Sentiment Overview</h2><table width=\"100%\" cellpadding=\"8\" cellspacing=\"0\" style=\"border-collapse:collapse;font-size:13px;\"><tr style=\"background-color:#f8f9fa;\"><th align=\"left\" style=\"padding:10px;border-bottom:2px solid #dee2e6;\">Company</th><th align=\"center\" style=\"padding:10px;border-bottom:2px solid #dee2e6;\">Ticker</th><th align=\"center\" style=\"padding:10px;border-bottom:2px solid #dee2e6;\">Sentiment</th><th align=\"center\" style=\"padding:10px;border-bottom:2px solid #dee2e6;\">Score</th></tr>${sentimentRows}</table></td></tr>\n<tr><td style=\"padding:20px 40px 10px;\"><h2 style=\"color:#16213e;font-size:18px;margin:0 0 15px;border-bottom:2px solid #e6e6e6;padding-bottom:10px;\">Company Analysis</h2>${gptData.company_analyses}</td></tr>\n<tr><td style=\"padding:20px 40px 10px;\"><h2 style=\"color:#16213e;font-size:18px;margin:0 0 15px;border-bottom:2px solid #e6e6e6;padding-bottom:10px;\">FCI Positioning</h2><div style=\"background-color:#e8f5e9;padding:15px;border-radius:6px;border-left:4px solid #4caf50;\"><p style=\"margin:0;color:#333;font-size:14px;line-height:1.6;\">${gptData.fci_positioning}</p></div></td></tr>\n<tr><td style=\"padding:30px 40px;background-color:#f9f9f9;border-top:1px solid #e6e6e6;\"><p style=\"color:#999;font-size:12px;margin:0;text-align:center;\">FCI Competitive Intelligence Agent &bull; GPT-5 mini<br>Companies analyzed: ${mergeData.companies_count} &bull; Articles processed: ${mergeData.total_count}</p></td></tr>\n</table></td></tr></table></body></html>`;\n\nreturn [{ json: { html, subject: `Competitor Synthesis — ${today}` } }];"
+      },
+      "id": "build-email",
+      "name": "Build Email HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3300, -100]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.SENDGRID_FROM_EMAIL || 'intel@yourdomain.com'}}",
+        "toEmail": "={{$env.SENDGRID_TO_EMAIL || 'team@yourdomain.com'}}",
+        "subject": "={{$json.subject}}",
+        "contentHtml": "={{$json.html}}"
+      },
+      "id": "sendgrid-send",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.sendGrid",
+      "typeVersion": 1,
+      "position": [3520, -100],
+      "credentials": {
+        "sendGridApi": {
+          "id": "CREDENTIAL_ID",
+          "name": "SendGrid"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scrape_log SET status='completed', articles_found={{$('Merge Results').first().json.total_count}}, articles_new={{$('Merge Results').first().json.new_count}}, completed_at=NOW() WHERE id={{$('Log Start').first().json.id}};",
+        "options": {}
+      },
+      "id": "log-complete",
+      "name": "Log Complete",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3740, 0],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scrape_log SET status='completed_no_new', articles_found={{$('Merge Results').first().json.total_count}}, articles_new=0, completed_at=NOW() WHERE id={{$('Log Start').first().json.id}};",
+        "options": {}
+      },
+      "id": "log-no-new",
+      "name": "Log No New",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2200, 100],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 72h 06:00 ET": {
+      "main": [[{ "node": "Log Start", "type": "main", "index": 0 }]]
+    },
+    "Log Start": {
+      "main": [[{ "node": "Get Competitors", "type": "main", "index": 0 }]]
+    },
+    "Get Competitors": {
+      "main": [[{ "node": "Fetch Competitor Page", "type": "main", "index": 0 }]]
+    },
+    "Fetch Competitor Page": {
+      "main": [[{ "node": "Extract Articles", "type": "main", "index": 0 }]]
+    },
+    "Extract Articles": {
+      "main": [[{ "node": "Normalize Articles", "type": "main", "index": 0 }]]
+    },
+    "Normalize Articles": {
+      "main": [[{ "node": "Filter Empty", "type": "main", "index": 0 }]]
+    },
+    "Filter Empty": {
+      "main": [[{ "node": "Dedup Insert", "type": "main", "index": 0 }]]
+    },
+    "Dedup Insert": {
+      "main": [[{ "node": "Merge Results", "type": "main", "index": 0 }]]
+    },
+    "Merge Results": {
+      "main": [[{ "node": "IF New Articles", "type": "main", "index": 0 }]]
+    },
+    "IF New Articles": {
+      "main": [
+        [{ "node": "GPT-5 Mini Analyze", "type": "main", "index": 0 }],
+        [{ "node": "Log No New", "type": "main", "index": 0 }]
+      ]
+    },
+    "GPT-5 Mini Analyze": {
+      "main": [[{ "node": "Validate GPT Response", "type": "main", "index": 0 }]]
+    },
+    "Validate GPT Response": {
+      "main": [[{ "node": "Build Sentiment Queries", "type": "main", "index": 0 }]]
+    },
+    "Build Sentiment Queries": {
+      "main": [[{ "node": "Store Sentiments", "type": "main", "index": 0 }]]
+    },
+    "Store Sentiments": {
+      "main": [[{ "node": "Store Summary", "type": "main", "index": 0 }]]
+    },
+    "Store Summary": {
+      "main": [[{ "node": "Build Email HTML", "type": "main", "index": 0 }]]
+    },
+    "Build Email HTML": {
+      "main": [[{ "node": "Send Email", "type": "main", "index": 0 }]]
+    },
+    "Send Email": {
+      "main": [[{ "node": "Log Complete", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Toronto"
+  },
+  "tags": [
+    { "name": "graphite-intel" },
+    { "name": "competitor" }
+  ]
+}

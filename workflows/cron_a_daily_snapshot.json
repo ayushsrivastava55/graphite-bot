@@ -1,0 +1,373 @@
+{
+  "name": "Cron A: Daily Graphite Snapshot",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily 06:00 ET",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO scrape_log (job_name, status) VALUES ('daily_snapshot', 'running') RETURNING id;",
+        "options": {}
+      },
+      "id": "log-start",
+      "name": "Log Start",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [220, 0],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "sources",
+              "value": "={{JSON.stringify([\n  {\n    \"name\": \"GraphiteHub\",\n    \"url\": \"https://graphitehub.com/news/\",\n    \"titleSelector\": \".entry-title a, h2 a, .post-title a\",\n    \"linkSelector\": \".entry-title a, h2 a, .post-title a\",\n    \"dateSelector\": \".entry-date, .post-date, time\"\n  },\n  {\n    \"name\": \"InvestingNews\",\n    \"url\": \"https://investingnews.com/graphite-investing/\",\n    \"titleSelector\": \"h3 a, .article-title a, .card-title a\",\n    \"linkSelector\": \"h3 a, .article-title a, .card-title a\",\n    \"dateSelector\": \"time, .date, .article-date\"\n  },\n  {\n    \"name\": \"MiningDotCom\",\n    \"url\": \"https://mining.com/tag/graphite/\",\n    \"titleSelector\": \"h3 a, .post-title a, .article-title a\",\n    \"linkSelector\": \"h3 a, .post-title a, .article-title a\",\n    \"dateSelector\": \"time, .date, .post-date\"\n  }\n])}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-sources",
+      "name": "Set Source Configs",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sources = JSON.parse($input.first().json.sources);\nreturn sources.map(s => ({ json: s }));"
+      },
+      "id": "split-sources",
+      "name": "Split Sources",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.url}}",
+        "options": {
+          "timeout": 30000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 3
+            }
+          }
+        }
+      },
+      "id": "http-request",
+      "name": "Fetch Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 0],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "titles",
+              "cssSelector": "={{$('Split Sources').item.json.titleSelector}}",
+              "returnArray": true
+            },
+            {
+              "key": "links",
+              "cssSelector": "={{$('Split Sources').item.json.linkSelector}}",
+              "returnArray": true,
+              "returnValue": "attribute",
+              "attribute": "href"
+            },
+            {
+              "key": "dates",
+              "cssSelector": "={{$('Split Sources').item.json.dateSelector}}",
+              "returnArray": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "html-extract",
+      "name": "Extract Articles",
+      "type": "n8n-nodes-base.htmlExtract",
+      "typeVersion": 1,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const titles = $input.first().json.titles || [];\nconst links = $input.first().json.links || [];\nconst dates = $input.first().json.dates || [];\nconst sourceName = $('Split Sources').item.json.name;\nconst sourceUrl = $('Split Sources').item.json.url;\n\nconst articles = [];\nconst count = Math.min(titles.length, links.length);\n\nfor (let i = 0; i < count; i++) {\n  let link = links[i];\n  if (link && !link.startsWith('http')) {\n    const base = new URL(sourceUrl);\n    link = link.startsWith('/') ? base.origin + link : base.origin + '/' + link;\n  }\n  if (!link) continue;\n\n  articles.push({\n    json: {\n      title: (titles[i] || '').trim(),\n      source_url: link.trim(),\n      published_date: (dates[i] || '').trim() || null,\n      source_site: sourceName\n    }\n  });\n}\n\nreturn articles.length > 0 ? articles : [{ json: { _empty: true, source_site: sourceName } }];"
+      },
+      "id": "normalize",
+      "name": "Normalize Articles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "filter-empty",
+              "leftValue": "={{$json._empty}}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-empty",
+      "name": "Filter Empty",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [1540, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO articles (source_url, title, published_date, source_site)\nVALUES ('{{$json.source_url}}', '{{$json.title}}', {{$json.published_date ? \"'\" + $json.published_date + \"'\" : \"NULL\"}}, '{{$json.source_site}}')\nON CONFLICT (source_url) DO NOTHING\nRETURNING id, title;",
+        "options": {}
+      },
+      "id": "insert-articles",
+      "name": "Dedup Insert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1760, 0],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst newArticles = items.filter(item => item.json.id);\nconst allArticles = items.map(item => ({\n  title: item.json.title || $('Normalize Articles').item.json.title,\n  source_url: $('Normalize Articles').item.json.source_url\n}));\n\nreturn [{\n  json: {\n    new_count: newArticles.length,\n    total_count: items.length,\n    new_articles: newArticles,\n    article_titles: allArticles.filter(a => a.title).map(a => a.title).join('\\n- ')\n  }\n}];"
+      },
+      "id": "merge-results",
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1980, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-new",
+              "leftValue": "={{$json.new_count}}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-new-articles",
+      "name": "IF New Articles",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2200, 0]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-5-mini",
+        "messages": {
+          "values": [
+            {
+              "content": "You are an expert mining industry analyst specializing in the graphite sector. Provide concise, actionable intelligence for First Canadian Graphite (FCI) executives."
+            }
+          ]
+        },
+        "prompt": "Summarize today's graphite industry news into a daily intelligence briefing for FCI leadership.\n\nArticles found today:\n- {{$json.article_titles}}\n\nProvide:\n1. **Key Highlights** (3-5 bullet points of the most important developments)\n2. **Full Summary** (2-3 paragraphs covering all significant news, with implications for FCI)\n\nFormat your response as JSON:\n{\"key_highlights\": \"<bullet points as HTML <li> tags>\", \"full_summary\": \"<paragraphs>\"}",
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 1500
+        }
+      },
+      "id": "openai-summarize",
+      "name": "GPT-5 Mini Summarize",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [2420, -100],
+      "credentials": {
+        "openAiApi": {
+          "id": "CREDENTIAL_ID",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO summaries (summary_type, content, model_used, token_count)\nVALUES ('daily_snapshot', '{{$json.message.content}}', 'gpt-5-mini', {{$json.message.usage?.total_tokens || 0}})\nRETURNING id;",
+        "options": {}
+      },
+      "id": "store-summary",
+      "name": "Store Summary",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2640, -100],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const fs = require('fs');\n\n// Parse GPT response\nlet gptResponse;\ntry {\n  const content = $('GPT-5 Mini Summarize').first().json.message.content;\n  gptResponse = JSON.parse(content);\n} catch (e) {\n  gptResponse = {\n    key_highlights: $('GPT-5 Mini Summarize').first().json.message.content,\n    full_summary: ''\n  };\n}\n\nconst mergeData = $('Merge Results').first().json;\nconst today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });\n\n// Email template with variable replacement\nlet html = `<!DOCTYPE html>\n<html><head><meta charset=\"UTF-8\"></head>\n<body style=\"margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,sans-serif;\">\n<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#f4f4f4;\"><tr><td align=\"center\" style=\"padding:20px 0;\">\n<table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#fff;border-radius:8px;overflow:hidden;\">\n<tr><td style=\"background-color:#1a1a2e;padding:30px 40px;text-align:center;\"><h1 style=\"color:#fff;margin:0;font-size:24px;\">Daily Graphite Snapshot</h1><p style=\"color:#a0a0c0;margin:8px 0 0;font-size:14px;\">${today}</p></td></tr>\n<tr><td style=\"padding:30px 40px 10px;\"><h2 style=\"color:#1a1a2e;font-size:18px;margin:0 0 15px;border-bottom:2px solid #e6e6e6;padding-bottom:10px;\">Key Highlights</h2><div style=\"background-color:#f0f7ff;padding:15px;border-radius:6px;border-left:4px solid #3498db;\"><ul style=\"margin:0;padding-left:20px;color:#333;font-size:14px;line-height:1.6;\">${gptResponse.key_highlights}</ul></div></td></tr>\n<tr><td style=\"padding:20px 40px 10px;\"><h2 style=\"color:#1a1a2e;font-size:18px;margin:0 0 15px;border-bottom:2px solid #e6e6e6;padding-bottom:10px;\">Full Summary</h2><p style=\"color:#444;font-size:14px;line-height:1.7;margin:0;\">${gptResponse.full_summary}</p></td></tr>\n<tr><td style=\"padding:30px 40px;background-color:#f9f9f9;border-top:1px solid #e6e6e6;\"><p style=\"color:#999;font-size:12px;margin:0;text-align:center;\">FCI Competitive Intelligence Agent &bull; GPT-5 mini<br>Articles scraped: ${mergeData.total_count} &bull; New today: ${mergeData.new_count}</p></td></tr>\n</table></td></tr></table></body></html>`;\n\nreturn [{ json: { html, subject: `Daily Graphite Snapshot — ${today}` } }];"
+      },
+      "id": "build-email",
+      "name": "Build Email HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2860, -100]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.SENDGRID_FROM_EMAIL || 'intel@yourdomain.com'}}",
+        "toEmail": "={{$env.SENDGRID_TO_EMAIL || 'team@yourdomain.com'}}",
+        "subject": "={{$json.subject}}",
+        "contentHtml": "={{$json.html}}"
+      },
+      "id": "sendgrid-send",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.sendGrid",
+      "typeVersion": 1,
+      "position": [3080, -100],
+      "credentials": {
+        "sendGridApi": {
+          "id": "CREDENTIAL_ID",
+          "name": "SendGrid"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scrape_log SET status='completed', articles_found={{$('Merge Results').first().json.total_count}}, articles_new={{$('Merge Results').first().json.new_count}}, completed_at=NOW() WHERE id={{$('Log Start').first().json.id}};",
+        "options": {}
+      },
+      "id": "log-complete",
+      "name": "Log Complete",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3300, 0],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scrape_log SET status='completed_no_new', articles_found={{$('Merge Results').first().json.total_count}}, articles_new=0, completed_at=NOW() WHERE id={{$('Log Start').first().json.id}};",
+        "options": {}
+      },
+      "id": "log-no-new",
+      "name": "Log No New",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2420, 100],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily 06:00 ET": {
+      "main": [[{ "node": "Log Start", "type": "main", "index": 0 }]]
+    },
+    "Log Start": {
+      "main": [[{ "node": "Set Source Configs", "type": "main", "index": 0 }]]
+    },
+    "Set Source Configs": {
+      "main": [[{ "node": "Split Sources", "type": "main", "index": 0 }]]
+    },
+    "Split Sources": {
+      "main": [[{ "node": "Fetch Page", "type": "main", "index": 0 }]]
+    },
+    "Fetch Page": {
+      "main": [[{ "node": "Extract Articles", "type": "main", "index": 0 }]]
+    },
+    "Extract Articles": {
+      "main": [[{ "node": "Normalize Articles", "type": "main", "index": 0 }]]
+    },
+    "Normalize Articles": {
+      "main": [[{ "node": "Filter Empty", "type": "main", "index": 0 }]]
+    },
+    "Filter Empty": {
+      "main": [[{ "node": "Dedup Insert", "type": "main", "index": 0 }]]
+    },
+    "Dedup Insert": {
+      "main": [[{ "node": "Merge Results", "type": "main", "index": 0 }]]
+    },
+    "Merge Results": {
+      "main": [[{ "node": "IF New Articles", "type": "main", "index": 0 }]]
+    },
+    "IF New Articles": {
+      "main": [
+        [{ "node": "GPT-5 Mini Summarize", "type": "main", "index": 0 }],
+        [{ "node": "Log No New", "type": "main", "index": 0 }]
+      ]
+    },
+    "GPT-5 Mini Summarize": {
+      "main": [[{ "node": "Store Summary", "type": "main", "index": 0 }]]
+    },
+    "Store Summary": {
+      "main": [[{ "node": "Build Email HTML", "type": "main", "index": 0 }]]
+    },
+    "Build Email HTML": {
+      "main": [[{ "node": "Send Email", "type": "main", "index": 0 }]]
+    },
+    "Send Email": {
+      "main": [[{ "node": "Log Complete", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Toronto"
+  },
+  "tags": [
+    { "name": "graphite-intel" },
+    { "name": "daily" }
+  ]
+}

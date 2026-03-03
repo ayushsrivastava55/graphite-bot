@@ -1,0 +1,295 @@
+{
+  "name": "Cron C: Weekly Financial Pulse",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 16 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Fridays 16:30 ET",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO scrape_log (job_name, status) VALUES ('financial_pulse', 'running') RETURNING id;",
+        "options": {}
+      },
+      "id": "log-start",
+      "name": "Log Start",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [220, 0],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, ticker, exchange, yahoo_ticker, is_target FROM companies WHERE yahoo_ticker IS NOT NULL ORDER BY is_target DESC, name;",
+        "options": {}
+      },
+      "id": "get-companies",
+      "name": "Get All Companies",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [440, 0],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://finance.yahoo.com/",
+        "options": {
+          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 3 } }
+        }
+      },
+      "id": "yahoo-cookie",
+      "name": "Get Yahoo Cookie",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "https://query2.finance.yahoo.com/v1/test/getcrumb",
+        "options": {
+          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 3 } }
+        }
+      },
+      "id": "yahoo-crumb",
+      "name": "Get Yahoo Crumb",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 0],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const companies = $('Get All Companies').all();\nconst crumb = $('Get Yahoo Crumb').first().json.data || $('Get Yahoo Crumb').first().json || '';\n\n// Build ticker list for batch query\nconst tickers = companies.map(c => c.json.yahoo_ticker).join(',');\n\nreturn [{ json: { tickers, crumb: typeof crumb === 'string' ? crumb : '', companies: companies.map(c => c.json) } }];"
+      },
+      "id": "prepare-tickers",
+      "name": "Prepare Tickers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "url": "=https://query2.finance.yahoo.com/v7/finance/quote?symbols={{$json.tickers}}&crumb={{$json.crumb}}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "yahoo-batch-quote",
+      "name": "Fetch Quotes (Batch)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 0],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst companies = $('Prepare Tickers').first().json.companies;\nconst quotes = response.quoteResponse?.result || [];\n\n// Map Yahoo data to our schema\nconst results = [];\nfor (const company of companies) {\n  const quote = quotes.find(q => q.symbol === company.yahoo_ticker);\n  if (!quote) {\n    results.push({\n      json: {\n        company_id: company.id,\n        company_name: company.name,\n        ticker: company.ticker,\n        yahoo_ticker: company.yahoo_ticker,\n        is_target: company.is_target,\n        close_price: null,\n        market_cap: null,\n        volume: null,\n        week_change_pct: null,\n        error: 'No quote data'\n      }\n    });\n    continue;\n  }\n\n  results.push({\n    json: {\n      company_id: company.id,\n      company_name: company.name,\n      ticker: company.ticker,\n      yahoo_ticker: company.yahoo_ticker,\n      is_target: company.is_target,\n      close_price: quote.regularMarketPrice || null,\n      market_cap: quote.marketCap || null,\n      volume: quote.regularMarketVolume || null,\n      week_change_pct: quote.fiftyTwoWeekChangePercent || quote.regularMarketChangePercent || null\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "extract-financials",
+      "name": "Extract Financials",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO financial_data (company_id, close_price, market_cap, volume, week_change_pct)\nVALUES ({{$json.company_id}}, {{$json.close_price || 'NULL'}}, {{$json.market_cap || 'NULL'}}, {{$json.volume || 'NULL'}}, {{$json.week_change_pct || 'NULL'}});",
+        "options": {}
+      },
+      "id": "store-financials",
+      "name": "Store Financial Data",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1760, 0],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(i => i.json);\nconst allItems = $('Extract Financials').all().map(i => i.json);\n\nconst fci = allItems.find(i => i.is_target);\nconst peers = allItems.filter(i => !i.is_target && i.close_price).sort((a,b) => (b.market_cap || 0) - (a.market_cap || 0));\n\n// Format helpers\nconst fmtPrice = (p) => p ? `$${Number(p).toFixed(2)}` : 'N/A';\nconst fmtCap = (c) => {\n  if (!c) return 'N/A';\n  if (c >= 1e9) return `$${(c/1e9).toFixed(1)}B`;\n  if (c >= 1e6) return `$${(c/1e6).toFixed(1)}M`;\n  return `$${Number(c).toLocaleString()}`;\n};\nconst fmtVol = (v) => {\n  if (!v) return 'N/A';\n  if (v >= 1e6) return `${(v/1e6).toFixed(1)}M`;\n  if (v >= 1e3) return `${(v/1e3).toFixed(0)}K`;\n  return v.toString();\n};\nconst fmtPct = (p) => p ? `${Number(p).toFixed(2)}%` : 'N/A';\n\nconst peerSummary = allItems.filter(i => i.close_price).map(i => \n  `${i.company_name} (${i.ticker}): Price ${fmtPrice(i.close_price)}, Cap ${fmtCap(i.market_cap)}, Change ${fmtPct(i.week_change_pct)}`\n).join('\\n');\n\nreturn [{\n  json: {\n    fci,\n    peers,\n    total: allItems.length,\n    peer_summary: peerSummary,\n    fci_price: fmtPrice(fci?.close_price),\n    fci_market_cap: fmtCap(fci?.market_cap),\n    fci_volume: fmtVol(fci?.volume)\n  }\n}];"
+      },
+      "id": "build-comparison",
+      "name": "Build Comparison",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1980, 0]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "gpt-5-mini",
+        "messages": {
+          "values": [
+            {
+              "content": "You are a financial analyst specializing in the graphite mining sector. Provide market narrative and identify notable movers."
+            }
+          ]
+        },
+        "prompt": "Analyze this week's financial data for graphite mining companies and provide a market narrative for FCI leadership.\n\nFinancial data:\n{{$json.peer_summary}}\n\nProvide:\n1. **Market Narrative**: 2-3 paragraphs about the overall graphite sector market movements this week, with implications for FCI\n2. **Notable Movers**: Companies with significant price changes or volume, formatted as HTML list items\n\nRespond in JSON:\n{\"market_narrative\": \"...\", \"notable_movers\": \"<HTML list items>\"}",
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 1500
+        }
+      },
+      "id": "openai-narrative",
+      "name": "GPT-5 Mini Narrative",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [2200, 0],
+      "credentials": {
+        "openAiApi": {
+          "id": "CREDENTIAL_ID",
+          "name": "OpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO summaries (summary_type, content, model_used)\nVALUES ('financial_pulse', '{{$json.message.content}}', 'gpt-5-mini')\nRETURNING id;",
+        "options": {}
+      },
+      "id": "store-summary",
+      "name": "Store Summary",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2420, 0],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const compData = $('Build Comparison').first().json;\nconst today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });\n\nlet gptResponse;\ntry {\n  const content = $('GPT-5 Mini Narrative').first().json.message.content;\n  const cleaned = content.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  gptResponse = JSON.parse(cleaned);\n} catch (e) {\n  gptResponse = {\n    market_narrative: $('GPT-5 Mini Narrative').first().json.message.content,\n    notable_movers: ''\n  };\n}\n\n// Build peer table rows\nconst fmtPrice = (p) => p ? `$${Number(p).toFixed(2)}` : 'N/A';\nconst fmtCap = (c) => {\n  if (!c) return 'N/A';\n  if (c >= 1e9) return `$${(c/1e9).toFixed(1)}B`;\n  if (c >= 1e6) return `$${(c/1e6).toFixed(1)}M`;\n  return `$${Number(c).toLocaleString()}`;\n};\nconst fmtVol = (v) => {\n  if (!v) return 'N/A';\n  if (v >= 1e6) return `${(v/1e6).toFixed(1)}M`;\n  if (v >= 1e3) return `${(v/1e3).toFixed(0)}K`;\n  return v.toString();\n};\n\nconst peerRows = compData.peers.map((p, i) => {\n  const bgColor = i % 2 === 0 ? '#ffffff' : '#f8f9fa';\n  const changeColor = p.week_change_pct > 0 ? '#28a745' : p.week_change_pct < 0 ? '#dc3545' : '#6c757d';\n  return `<tr style=\"background-color:${bgColor};\"><td style=\"padding:6px 8px;border-bottom:1px solid #eee;\">${p.company_name}</td><td align=\"center\" style=\"padding:6px 8px;border-bottom:1px solid #eee;\">${p.ticker}</td><td align=\"right\" style=\"padding:6px 8px;border-bottom:1px solid #eee;\">${fmtPrice(p.close_price)}</td><td align=\"right\" style=\"padding:6px 8px;border-bottom:1px solid #eee;\">${fmtCap(p.market_cap)}</td><td align=\"right\" style=\"padding:6px 8px;border-bottom:1px solid #eee;\">${fmtVol(p.volume)}</td><td align=\"right\" style=\"padding:6px 8px;border-bottom:1px solid #eee;color:${changeColor};font-weight:bold;\">${p.week_change_pct ? p.week_change_pct.toFixed(2) + '%' : 'N/A'}</td></tr>`;\n}).join('');\n\nlet html = `<!DOCTYPE html>\n<html><head><meta charset=\"UTF-8\"></head>\n<body style=\"margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,sans-serif;\">\n<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#f4f4f4;\"><tr><td align=\"center\" style=\"padding:20px 0;\">\n<table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#fff;border-radius:8px;overflow:hidden;\">\n<tr><td style=\"background-color:#0d1b2a;padding:30px 40px;text-align:center;\"><h1 style=\"color:#fff;margin:0;font-size:24px;\">Weekly Financial Pulse</h1><p style=\"color:#a0a0c0;margin:8px 0 0;font-size:14px;\">Market Close &bull; ${today}</p></td></tr>\n<tr><td style=\"padding:30px 40px 10px;\"><h2 style=\"color:#0d1b2a;font-size:18px;margin:0 0 15px;border-bottom:2px solid #e6e6e6;padding-bottom:10px;\">FCI Spotlight</h2><table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\"><tr><td width=\"30%\" align=\"center\" style=\"padding:15px;background-color:#f0f7ff;border-radius:6px;\"><p style=\"margin:0;color:#999;font-size:11px;text-transform:uppercase;\">Price</p><p style=\"margin:5px 0 0;color:#1a1a2e;font-size:22px;font-weight:bold;\">${compData.fci_price}</p></td><td width=\"5%\"></td><td width=\"30%\" align=\"center\" style=\"padding:15px;background-color:#f0f7ff;border-radius:6px;\"><p style=\"margin:0;color:#999;font-size:11px;text-transform:uppercase;\">Market Cap</p><p style=\"margin:5px 0 0;color:#1a1a2e;font-size:22px;font-weight:bold;\">${compData.fci_market_cap}</p></td><td width=\"5%\"></td><td width=\"30%\" align=\"center\" style=\"padding:15px;background-color:#f0f7ff;border-radius:6px;\"><p style=\"margin:0;color:#999;font-size:11px;text-transform:uppercase;\">Volume</p><p style=\"margin:5px 0 0;color:#1a1a2e;font-size:22px;font-weight:bold;\">${compData.fci_volume}</p></td></tr></table></td></tr>\n<tr><td style=\"padding:20px 40px 10px;\"><h2 style=\"color:#0d1b2a;font-size:18px;margin:0 0 15px;border-bottom:2px solid #e6e6e6;padding-bottom:10px;\">Peer Comparison</h2><table width=\"100%\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse:collapse;font-size:12px;\"><tr style=\"background-color:#f8f9fa;\"><th align=\"left\" style=\"padding:8px;border-bottom:2px solid #dee2e6;\">Company</th><th align=\"center\" style=\"padding:8px;border-bottom:2px solid #dee2e6;\">Ticker</th><th align=\"right\" style=\"padding:8px;border-bottom:2px solid #dee2e6;\">Price</th><th align=\"right\" style=\"padding:8px;border-bottom:2px solid #dee2e6;\">Mkt Cap</th><th align=\"right\" style=\"padding:8px;border-bottom:2px solid #dee2e6;\">Vol</th><th align=\"right\" style=\"padding:8px;border-bottom:2px solid #dee2e6;\">Wk %</th></tr>${peerRows}</table></td></tr>\n<tr><td style=\"padding:20px 40px 10px;\"><h2 style=\"color:#0d1b2a;font-size:18px;margin:0 0 15px;border-bottom:2px solid #e6e6e6;padding-bottom:10px;\">Market Narrative</h2><p style=\"color:#444;font-size:14px;line-height:1.7;margin:0;\">${gptResponse.market_narrative}</p></td></tr>\n<tr><td style=\"padding:20px 40px 10px;\"><h2 style=\"color:#0d1b2a;font-size:18px;margin:0 0 15px;border-bottom:2px solid #e6e6e6;padding-bottom:10px;\">Notable Movers</h2><ul style=\"padding-left:20px;color:#444;font-size:14px;line-height:1.7;\">${gptResponse.notable_movers}</ul></td></tr>\n<tr><td style=\"padding:30px 40px;background-color:#f9f9f9;border-top:1px solid #e6e6e6;\"><p style=\"color:#999;font-size:12px;margin:0;text-align:center;\">FCI Competitive Intelligence Agent &bull; GPT-5 mini<br>Companies tracked: ${compData.total} &bull; Data source: Yahoo Finance</p></td></tr>\n</table></td></tr></table></body></html>`;\n\nreturn [{ json: { html, subject: `Weekly Financial Pulse — ${today}` } }];"
+      },
+      "id": "build-email",
+      "name": "Build Email HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2640, 0]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{$env.SENDGRID_FROM_EMAIL || 'intel@yourdomain.com'}}",
+        "toEmail": "={{$env.SENDGRID_TO_EMAIL || 'team@yourdomain.com'}}",
+        "subject": "={{$json.subject}}",
+        "contentHtml": "={{$json.html}}"
+      },
+      "id": "sendgrid-send",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.sendGrid",
+      "typeVersion": 1,
+      "position": [2860, 0],
+      "credentials": {
+        "sendGridApi": {
+          "id": "CREDENTIAL_ID",
+          "name": "SendGrid"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scrape_log SET status='completed', articles_found={{$('Build Comparison').first().json.total}}, completed_at=NOW() WHERE id={{$('Log Start').first().json.id}};",
+        "options": {}
+      },
+      "id": "log-complete",
+      "name": "Log Complete",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3080, 0],
+      "credentials": {
+        "postgres": {
+          "id": "CREDENTIAL_ID",
+          "name": "Graphite Intel DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Fridays 16:30 ET": {
+      "main": [[{ "node": "Log Start", "type": "main", "index": 0 }]]
+    },
+    "Log Start": {
+      "main": [[{ "node": "Get All Companies", "type": "main", "index": 0 }]]
+    },
+    "Get All Companies": {
+      "main": [[{ "node": "Get Yahoo Cookie", "type": "main", "index": 0 }]]
+    },
+    "Get Yahoo Cookie": {
+      "main": [[{ "node": "Get Yahoo Crumb", "type": "main", "index": 0 }]]
+    },
+    "Get Yahoo Crumb": {
+      "main": [[{ "node": "Prepare Tickers", "type": "main", "index": 0 }]]
+    },
+    "Prepare Tickers": {
+      "main": [[{ "node": "Fetch Quotes (Batch)", "type": "main", "index": 0 }]]
+    },
+    "Fetch Quotes (Batch)": {
+      "main": [[{ "node": "Extract Financials", "type": "main", "index": 0 }]]
+    },
+    "Extract Financials": {
+      "main": [[{ "node": "Store Financial Data", "type": "main", "index": 0 }]]
+    },
+    "Store Financial Data": {
+      "main": [[{ "node": "Build Comparison", "type": "main", "index": 0 }]]
+    },
+    "Build Comparison": {
+      "main": [[{ "node": "GPT-5 Mini Narrative", "type": "main", "index": 0 }]]
+    },
+    "GPT-5 Mini Narrative": {
+      "main": [[{ "node": "Store Summary", "type": "main", "index": 0 }]]
+    },
+    "Store Summary": {
+      "main": [[{ "node": "Build Email HTML", "type": "main", "index": 0 }]]
+    },
+    "Build Email HTML": {
+      "main": [[{ "node": "Send Email", "type": "main", "index": 0 }]]
+    },
+    "Send Email": {
+      "main": [[{ "node": "Log Complete", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Toronto"
+  },
+  "tags": [
+    { "name": "graphite-intel" },
+    { "name": "financial" }
+  ]
+}
