@@ -21,11 +21,11 @@ export async function callGPT(
   const response = await client.chat.completions.create({
     model,
     messages: [
-      { role: 'system', content: system },
+      { role: 'developer', content: system },
       { role: 'user', content: user },
     ],
-    max_completion_tokens: opts?.maxTokens ?? 2000,
-    temperature: 0.3,
+    max_completion_tokens: opts?.maxTokens ?? 16000,
+    reasoning_effort: 'low' as any,
     ...(opts?.jsonMode ? { response_format: { type: 'json_object' } } : {}),
   });
 
