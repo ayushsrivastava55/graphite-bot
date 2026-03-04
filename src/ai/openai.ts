@@ -24,7 +24,7 @@ export async function callGPT(
       { role: 'system', content: system },
       { role: 'user', content: user },
     ],
-    max_tokens: opts?.maxTokens ?? 2000,
+    max_completion_tokens: opts?.maxTokens ?? 2000,
     temperature: 0.3,
     ...(opts?.jsonMode ? { response_format: { type: 'json_object' } } : {}),
   });

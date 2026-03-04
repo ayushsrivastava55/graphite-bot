@@ -24,7 +24,7 @@ export const industrySites: SiteConfig[] = [
   },
   {
     name: 'mining.com',
-    url: 'https://www.mining.com/tag/graphite/',
+    url: 'https://www.mining.com/commodity/graphite/',
     linkSelector: 'a[href*="/graphite"], .post-title a, h2 a, h3 a',
     contentSelector: 'article, .entry-content, .post-content, main',
     baseUrl: 'https://www.mining.com',
