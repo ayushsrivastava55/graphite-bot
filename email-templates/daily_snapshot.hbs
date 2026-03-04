@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0; padding:0; background-color:#f4f4f5; font-family:Arial, Helvetica, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5; padding:20px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:8px; overflow:hidden;">
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#1e293b; padding:24px 32px;">
+              <h1 style="margin:0; color:#ffffff; font-size:22px;">Graphite Industry Daily Snapshot</h1>
+              <p style="margin:4px 0 0; color:#94a3b8; font-size:13px;">{{dateNow}} &bull; {{articleCount}} articles analyzed</p>
+            </td>
+          </tr>
+
+          <!-- Summary -->
+          <tr>
+            <td style="padding:24px 32px;">
+              <div style="font-size:14px; line-height:1.7; color:#334155;">
+                {{{summary}}}
+              </div>
+            </td>
+          </tr>
+
+          <!-- Sources -->
+          {{#if sources.length}}
+          <tr>
+            <td style="padding:0 32px 24px;">
+              <h3 style="margin:0 0 12px; color:#1e293b; font-size:15px; border-top:1px solid #e2e8f0; padding-top:16px;">Sources</h3>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                {{#each sources}}
+                <tr>
+                  <td style="padding:6px 0; font-size:13px;">
+                    <a href="{{this.url}}" style="color:#2563eb; text-decoration:none;">{{this.title}}</a>
+                    <span style="color:#94a3b8;"> &mdash; {{this.site}}</span>
+                  </td>
+                </tr>
+                {{/each}}
+              </table>
+            </td>
+          </tr>
+          {{/if}}
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f8fafc; padding:16px 32px; text-align:center;">
+              <p style="margin:0; color:#94a3b8; font-size:11px;">FCI Competitive Intelligence Agent &bull; Auto-generated report</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

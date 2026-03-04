@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0; padding:0; background-color:#f4f4f5; font-family:Arial, Helvetica, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5; padding:20px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:8px; overflow:hidden;">
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#1e293b; padding:24px 32px;">
+              <h1 style="margin:0; color:#ffffff; font-size:22px;">Financial Pulse Report</h1>
+              <p style="margin:4px 0 0; color:#94a3b8; font-size:13px;">{{dateNow}} &bull; Weekly Market Data</p>
+            </td>
+          </tr>
+
+          <!-- FCI Spotlight -->
+          <tr>
+            <td style="padding:24px 32px;">
+              <h3 style="margin:0 0 16px; color:#1e293b; font-size:16px;">FCI Spotlight: {{target.name}} ({{target.ticker}})</h3>
+              <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+                <tr>
+                  <td style="padding:12px 16px; background-color:#f0f9ff; border-radius:8px 0 0 0; width:25%; text-align:center;">
+                    <div style="font-size:11px; color:#64748b; text-transform:uppercase;">Price</div>
+                    <div style="font-size:18px; font-weight:bold; color:#1e293b; margin-top:4px;">{{target.price}}</div>
+                  </td>
+                  <td style="padding:12px 16px; background-color:#f0f9ff; width:25%; text-align:center;">
+                    <div style="font-size:11px; color:#64748b; text-transform:uppercase;">Market Cap</div>
+                    <div style="font-size:18px; font-weight:bold; color:#1e293b; margin-top:4px;">{{target.marketCap}}</div>
+                  </td>
+                  <td style="padding:12px 16px; background-color:#f0f9ff; width:25%; text-align:center;">
+                    <div style="font-size:11px; color:#64748b; text-transform:uppercase;">Volume</div>
+                    <div style="font-size:18px; font-weight:bold; color:#1e293b; margin-top:4px;">{{target.volume}}</div>
+                  </td>
+                  <td style="padding:12px 16px; background-color:#f0f9ff; border-radius:0 8px 0 0; width:25%; text-align:center;">
+                    <div style="font-size:11px; color:#64748b; text-transform:uppercase;">52wk Change</div>
+                    <div style="font-size:18px; font-weight:bold; color:{{signColor target.weekChangeRaw}}; margin-top:4px;">{{target.weekChange}}</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Peer Comparison Table -->
+          <tr>
+            <td style="padding:0 32px 24px;">
+              <h3 style="margin:0 0 12px; color:#1e293b; font-size:15px;">Peer Comparison</h3>
+              <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+                <tr style="background-color:#f8fafc;">
+                  <th style="padding:10px 6px; text-align:left; font-size:11px; color:#64748b; border-bottom:2px solid #e2e8f0;">Company</th>
+                  <th style="padding:10px 6px; text-align:right; font-size:11px; color:#64748b; border-bottom:2px solid #e2e8f0;">Price</th>
+                  <th style="padding:10px 6px; text-align:right; font-size:11px; color:#64748b; border-bottom:2px solid #e2e8f0;">Mkt Cap</th>
+                  <th style="padding:10px 6px; text-align:right; font-size:11px; color:#64748b; border-bottom:2px solid #e2e8f0;">Volume</th>
+                  <th style="padding:10px 6px; text-align:right; font-size:11px; color:#64748b; border-bottom:2px solid #e2e8f0;">52wk %</th>
+                </tr>
+                {{#each peers}}
+                <tr>
+                  <td style="padding:8px 6px; font-size:12px; border-bottom:1px solid #f1f5f9;">
+                    <strong>{{this.name}}</strong> <span style="color:#94a3b8;">({{this.ticker}})</span>
+                  </td>
+                  <td style="padding:8px 6px; text-align:right; font-size:12px; border-bottom:1px solid #f1f5f9;">{{this.price}}</td>
+                  <td style="padding:8px 6px; text-align:right; font-size:12px; border-bottom:1px solid #f1f5f9;">{{this.marketCap}}</td>
+                  <td style="padding:8px 6px; text-align:right; font-size:12px; border-bottom:1px solid #f1f5f9;">{{this.volume}}</td>
+                  <td style="padding:8px 6px; text-align:right; font-size:12px; color:{{signColor this.weekChangeRaw}}; border-bottom:1px solid #f1f5f9;">{{this.weekChange}}</td>
+                </tr>
+                {{/each}}
+              </table>
+            </td>
+          </tr>
+
+          <!-- Narrative -->
+          <tr>
+            <td style="padding:0 32px 24px;">
+              <h3 style="margin:0 0 12px; color:#1e293b; font-size:15px; border-top:1px solid #e2e8f0; padding-top:16px;">Market Narrative</h3>
+              <div style="font-size:14px; line-height:1.7; color:#334155;">
+                {{{narrative}}}
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f8fafc; padding:16px 32px; text-align:center;">
+              <p style="margin:0; color:#94a3b8; font-size:11px;">FCI Competitive Intelligence Agent &bull; Auto-generated report</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

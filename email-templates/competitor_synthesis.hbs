@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0; padding:0; background-color:#f4f4f5; font-family:Arial, Helvetica, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5; padding:20px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:8px; overflow:hidden;">
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#1e293b; padding:24px 32px;">
+              <h1 style="margin:0; color:#ffffff; font-size:22px;">Competitor Sentiment Synthesis</h1>
+              <p style="margin:4px 0 0; color:#94a3b8; font-size:13px;">{{dateNow}} &bull; {{sentiments.length}} competitors analyzed</p>
+            </td>
+          </tr>
+
+          <!-- Sentiment Table -->
+          <tr>
+            <td style="padding:24px 32px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+                <tr style="background-color:#f8fafc;">
+                  <th style="padding:10px 8px; text-align:left; font-size:12px; color:#64748b; border-bottom:2px solid #e2e8f0;">Company</th>
+                  <th style="padding:10px 8px; text-align:center; font-size:12px; color:#64748b; border-bottom:2px solid #e2e8f0;">Sentiment</th>
+                  <th style="padding:10px 8px; text-align:center; font-size:12px; color:#64748b; border-bottom:2px solid #e2e8f0;">Score</th>
+                  <th style="padding:10px 8px; text-align:center; font-size:12px; color:#64748b; border-bottom:2px solid #e2e8f0;">Articles</th>
+                </tr>
+                {{#each sentiments}}
+                <tr>
+                  <td style="padding:10px 8px; font-size:13px; border-bottom:1px solid #f1f5f9;">
+                    <strong>{{this.company}}</strong>
+                    <span style="color:#94a3b8;">({{this.ticker}})</span>
+                  </td>
+                  <td style="padding:10px 8px; text-align:center; border-bottom:1px solid #f1f5f9;">
+                    <span style="background-color:{{sentimentColor this.label}}; color:#fff; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:bold;">{{this.label}}</span>
+                  </td>
+                  <td style="padding:10px 8px; text-align:center; font-size:13px; border-bottom:1px solid #f1f5f9;">{{this.score}}</td>
+                  <td style="padding:10px 8px; text-align:center; font-size:13px; border-bottom:1px solid #f1f5f9;">{{this.articleCount}}</td>
+                </tr>
+                {{/each}}
+              </table>
+            </td>
+          </tr>
+
+          <!-- Per-Company Analysis -->
+          {{#each sentiments}}
+          {{#if this.reasoning}}
+          <tr>
+            <td style="padding:0 32px 12px;">
+              <div style="background-color:#f8fafc; border-left:3px solid {{sentimentColor this.label}}; padding:12px 16px; border-radius:0 4px 4px 0;">
+                <strong style="font-size:13px; color:#1e293b;">{{this.company}}</strong>
+                <p style="margin:4px 0 0; font-size:13px; color:#475569; line-height:1.5;">{{this.reasoning}}</p>
+              </div>
+            </td>
+          </tr>
+          {{/if}}
+          {{/each}}
+
+          <!-- Overall Summary -->
+          <tr>
+            <td style="padding:16px 32px 24px;">
+              <h3 style="margin:0 0 12px; color:#1e293b; font-size:15px; border-top:1px solid #e2e8f0; padding-top:16px;">Overall Analysis</h3>
+              <div style="font-size:14px; line-height:1.7; color:#334155;">
+                {{{overallSummary}}}
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f8fafc; padding:16px 32px; text-align:center;">
+              <p style="margin:0; color:#94a3b8; font-size:11px;">FCI Competitive Intelligence Agent &bull; Auto-generated report</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

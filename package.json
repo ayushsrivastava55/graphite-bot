@@ -1,0 +1,30 @@
+{
+  "name": "graphite-approach2",
+  "version": "1.0.0",
+  "description": "FCI Competitive Intelligence Agent — Standalone",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "setup-db": "tsx scripts/setup-db.ts",
+    "run-job": "tsx scripts/run-job.ts"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "cron": "^3.1.0",
+    "dotenv": "^16.4.0",
+    "handlebars": "^4.7.8",
+    "openai": "^4.70.0",
+    "pg": "^8.13.0",
+    "@sendgrid/mail": "^8.1.0",
+    "yahoo-finance2": "^2.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
