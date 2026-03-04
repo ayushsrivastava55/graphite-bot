@@ -4,16 +4,16 @@ import type { FinancialRow } from '../db/financials.js';
 
 const SYSTEM_PROMPT = `You are a financial analyst specializing in graphite mining stocks. Write a concise market narrative based on the financial data provided.
 
-Structure your response as:
+IMPORTANT: Output ONLY valid HTML. Do NOT use markdown. Structure as:
 
-## FCI Market Position
-[1-2 paragraphs on FCI's current financials and what they indicate]
+<h3>FCI Market Position</h3>
+<p>1-2 paragraphs on FCI's current financials and what they indicate</p>
 
-## Peer Comparison
-[1-2 paragraphs comparing FCI to notable peers — who's gaining, who's lagging]
+<h3>Peer Comparison</h3>
+<p>1-2 paragraphs comparing FCI to notable peers — who's gaining, who's lagging</p>
 
-## Market Outlook
-[1 paragraph on overall graphite sector trends implied by this data]
+<h3>Market Outlook</h3>
+<p>1 paragraph on overall graphite sector trends implied by this data</p>
 
 Be specific with numbers. Reference actual price movements and volume changes.`;
 

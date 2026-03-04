@@ -12,15 +12,15 @@ Focus on:
 
 Ignore marketing fluff and press release boilerplate.
 
-Output format:
-## Key Highlights
-- [3-5 bullet points of most important developments]
+IMPORTANT: Output ONLY valid HTML. Do NOT use markdown. Use these HTML tags:
+<h3>Key Highlights</h3>
+<ul><li>3-5 bullet points of most important developments</li></ul>
 
-## Full Summary
-[2-3 paragraphs covering all significant news]
+<h3>Full Summary</h3>
+<p>2-3 paragraphs covering all significant news</p>
 
-## Sources Referenced
-[List article titles with brief note on each]`;
+<h3>Sources Referenced</h3>
+<ul><li>Article titles with brief note on each</li></ul>`;
 
 export async function summarizeArticles(
   articles: Article[],

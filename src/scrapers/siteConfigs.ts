@@ -18,7 +18,7 @@ export const industrySites: SiteConfig[] = [
   {
     name: 'investingnews',
     url: 'https://investingnews.com/graphite-investing/',
-    linkSelector: 'a[href*="/daily/"]',
+    linkSelector: 'a.widget__headline-text',
     contentSelector: 'article, .article-body, .post-content, main',
     baseUrl: 'https://investingnews.com',
   },
